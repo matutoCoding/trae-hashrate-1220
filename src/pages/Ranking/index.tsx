@@ -29,7 +29,7 @@ import type { AvoidanceAdjustment, AvoidanceFailure } from '@/utils';
 
 export default function RankingPage() {
   const { matchResults, setMatchResults } = useMatchStore();
-  const { students } = useStudentStore();
+  const { students, wills } = useStudentStore();
   const { seatSchedules, examRooms } = useSeatStore();
   const { cycles } = useCycleStore();
   const [selectedCycle, setSelectedCycle] = useState(cycles[0]?.id || '');
@@ -58,7 +58,8 @@ export default function RankingPage() {
       students,
       cycleSchedules,
       cycleSchedules,
-      examRooms
+      examRooms,
+      wills
     );
     setMatchResults(result.results);
     setAdjustments(result.adjustments);

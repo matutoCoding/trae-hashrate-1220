@@ -260,7 +260,8 @@ export const applySameSchoolAvoidance = (
   students: Student[],
   schedules: SeatSchedule[],
   allSchedules: SeatSchedule[],
-  examRooms: ExamRoom[]
+  examRooms: ExamRoom[],
+  wills: StudentWill[]
 ): AvoidanceResult => {
   const studentMap = new Map(students.map(s => [s.id, s]));
   const scheduleMap = new Map(schedules.map(s => [s.id, s]));
@@ -310,7 +311,10 @@ export const applySameSchoolAvoidance = (
           allSchedules,
           usedSeats,
           examRooms,
-          schoolRoomMap.get(school) || new Map()
+          schoolRoomMap.get(school) || new Map(),
+          student,
+          students,
+          wills
         );
         
         if (newSchedule) {
@@ -372,15 +376,27 @@ const findAlternativeSeat = (
   allSchedules: SeatSchedule[],
   usedSeats: Set<string>,
   examRooms: ExamRoom[],
-  currentSchoolRoomMap: Map<string, MatchResult[]>
+  currentSchoolRoomMap: Map<string, MatchResult[]>,
+  student: Student,
+  allStudents: Student[],
+  wills: StudentWill[]
 ): SeatSchedule | null => {
+  const will = wills.find(w => w.studentId === student.id);
+
+  const isScheduleValid = (schedule: SeatSchedule): boolean => {
+    if (schedule.status !== 'available') return false;
+    if (usedSeats.has(schedule.id)) return false;
+    if (!checkStudentFitsSeat(student, schedule.matchConditions)) return false;
+    if (will && !checkSeatFitsStudent(schedule, will, examRooms)) return false;
+    return true;
+  };
+
   const sameTimeOtherRoom = allSchedules.filter(s =>
     s.date === currentSchedule.date &&
     s.timeSlot === currentSchedule.timeSlot &&
     s.examRoomId !== currentSchedule.examRoomId &&
-    s.status === 'available' &&
-    !usedSeats.has(s.id) &&
-    !currentSchoolRoomMap.has(s.examRoomId)
+    !currentSchoolRoomMap.has(s.examRoomId) &&
+    isScheduleValid(s)
   );
   
   if (sameTimeOtherRoom.length > 0) {
@@ -390,8 +406,7 @@ const findAlternativeSeat = (
   const sameDateOtherTime = allSchedules.filter(s =>
     s.date === currentSchedule.date &&
     s.timeSlot !== currentSchedule.timeSlot &&
-    s.status === 'available' &&
-    !usedSeats.has(s.id)
+    isScheduleValid(s)
   );
   
   if (sameDateOtherTime.length > 0) {
@@ -400,8 +415,7 @@ const findAlternativeSeat = (
   
   const otherDate = allSchedules.filter(s =>
     s.date !== currentSchedule.date &&
-    s.status === 'available' &&
-    !usedSeats.has(s.id)
+    isScheduleValid(s)
   );
   
   if (otherDate.length > 0) {

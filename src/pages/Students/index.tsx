@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Search, UserPlus, FileUp, Edit, Trash2, Eye, Heart } from 'lucide-react';
+import { Plus, Search, UserPlus, FileUp, Edit, Trash2, Eye, Heart, RefreshCw, AlertTriangle } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
@@ -7,17 +7,20 @@ import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { useStudentStore } from '@/store/studentStore';
 import { useSeatStore } from '@/store/seatStore';
+import { useMatchStore } from '@/store/matchStore';
 import { generateId, formatDate } from '@/utils';
 import type { Student, StudentWill } from '@/types';
 
 export default function StudentsPage() {
-  const { students, wills, addStudent, addWill, getWillByStudent } = useStudentStore();
+  const { students, wills, addStudent, setWillByStudent, getWillByStudent } = useStudentStore();
   const { seatSchedules } = useSeatStore();
+  const { setMatchResults, setMatchDetails } = useMatchStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [schoolFilter, setSchoolFilter] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showWillModal, setShowWillModal] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [showRematchNotice, setShowRematchNotice] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -65,19 +68,24 @@ export default function StudentsPage() {
   const handleSubmitWill = () => {
     if (!selectedStudentId) return;
     
-    const newWill: StudentWill = {
-      id: generateId('will'),
-      studentId: selectedStudentId,
+    const existingWill = getWillByStudent(selectedStudentId);
+    const isModification = !!existingWill;
+    
+    setWillByStudent(selectedStudentId, {
       preferredTimeSlot: willData.preferredTimeSlot || undefined,
       preferences: {
         preferredCampus: willData.preferredCampus || undefined,
         preferredDate: willData.preferredDate || undefined,
       },
-      status: 'pending',
-      submittedAt: new Date().toISOString(),
-    };
+    });
     
-    addWill(newWill);
+    if (isModification) {
+      setMatchResults([]);
+      setMatchDetails([]);
+      setShowRematchNotice(true);
+      setTimeout(() => setShowRematchNotice(false), 5000);
+    }
+    
     setShowWillModal(false);
     setWillData({ preferredTimeSlot: '', preferredCampus: '', preferredDate: '' });
     setSelectedStudentId(null);
@@ -102,6 +110,25 @@ export default function StudentsPage() {
 
   return (
     <div className="space-y-6">
+      {showRematchNotice && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+          <div className="p-2 bg-amber-100 rounded-lg">
+            <RefreshCw className="w-5 h-5 text-amber-600 animate-spin" />
+          </div>
+          <div className="flex-1">
+            <p className="font-medium text-amber-800">考生意愿已更新</p>
+            <p className="text-sm text-amber-600">旧的匹配结果已清除，请前往双向撮合页面重新撮合，将按最新偏好生成候选</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowRematchNotice(false)}
+          >
+            知道了
+          </Button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">考生管理</h1>

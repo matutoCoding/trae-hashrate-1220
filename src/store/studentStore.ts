@@ -15,6 +15,7 @@ interface StudentActions {
   deleteStudent: (id: string) => void;
   addWill: (will: StudentWill) => void;
   updateWill: (id: string, updates: Partial<StudentWill>) => void;
+  setWillByStudent: (studentId: string, will: Omit<StudentWill, 'id' | 'studentId' | 'status' | 'submittedAt'>) => void;
   getWillByStudent: (studentId: string) => StudentWill | undefined;
   getStudentsWithWill: () => Student[];
 }
@@ -51,6 +52,35 @@ export const useStudentStore = create<StudentState & StudentActions>((set, get) 
         w.id === id ? { ...w, ...updates } : w
       ),
     })),
+
+  setWillByStudent: (studentId, willData) =>
+    set((state) => {
+      const existingWill = state.wills.find((w) => w.studentId === studentId);
+      if (existingWill) {
+        return {
+          wills: state.wills.map((w) =>
+            w.id === existingWill.id
+              ? {
+                  ...w,
+                  ...willData,
+                  submittedAt: new Date().toISOString(),
+                }
+              : w
+          ),
+        };
+      } else {
+        const newWill: StudentWill = {
+          id: `will_${Date.now()}`,
+          studentId,
+          status: 'pending',
+          submittedAt: new Date().toISOString(),
+          ...willData,
+        };
+        return {
+          wills: [...state.wills, newWill],
+        };
+      }
+    }),
 
   getWillByStudent: (studentId) => {
     return get().wills.find((w) => w.studentId === studentId);
