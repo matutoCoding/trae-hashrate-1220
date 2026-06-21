@@ -75,11 +75,22 @@ export default function MatchingPage() {
   };
 
   const handleConfirm = (id: string) => {
-    confirmMatch(id);
     const result = matchResults.find(r => r.id === id);
-    if (result) {
-      updateSeatSchedule(result.seatScheduleId, { status: 'booked' });
-    }
+    const student = students.find(s => s.id === result?.studentId);
+    const schedule = cycleSchedules.find(s => s.id === result?.seatScheduleId);
+    const room = examRooms.find(r => r.id === schedule?.examRoomId);
+    
+    if (!result || !student || !schedule) return;
+    
+    confirmMatch(
+      id,
+      student.name,
+      room?.name || '',
+      schedule.date,
+      schedule.timeSlot,
+      schedule.seatId
+    );
+    updateSeatSchedule(result.seatScheduleId, { status: 'booked' });
   };
 
   const handleReject = (id: string) => {

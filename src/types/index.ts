@@ -116,3 +116,46 @@ export interface MatchDetail {
   seatFitsStudent: boolean;
   fitScore: number;
 }
+
+export type ChangeLogType = 'confirm' | 'cancel' | 'reschedule' | 'same_school_avoid';
+
+export interface ChangeLog {
+  id: string;
+  cycleId: string;
+  type: ChangeLogType;
+  studentId: string;
+  studentName: string;
+  fromSeatScheduleId?: string;
+  toSeatScheduleId?: string;
+  fromRoomName?: string;
+  toRoomName?: string;
+  fromDate?: string;
+  toDate?: string;
+  fromTimeSlot?: string;
+  toTimeSlot?: string;
+  fromSeatNumber?: string;
+  toSeatNumber?: string;
+  reason?: string;
+  createdAt: string;
+}
+
+export interface AvoidanceResultPerCycle {
+  adjustments: Array<{
+    studentId: string;
+    studentName: string;
+    school: string;
+    fromRoom: string;
+    toRoom: string;
+    fromTimeSlot: string;
+    toTimeSlot: string;
+    reason: string;
+  }>;
+  failures: Array<{
+    studentId: string;
+    studentName: string;
+    school: string;
+    roomId: string;
+    reason: string;
+  }>;
+  appliedAt: string;
+}

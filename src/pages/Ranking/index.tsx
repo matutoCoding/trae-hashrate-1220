@@ -30,9 +30,16 @@ import { applySameSchoolAvoidance } from '@/utils';
 import type { AvoidanceAdjustment, AvoidanceFailure } from '@/utils';
 
 export default function RankingPage() {
-  const { matchResultsByCycle, setMatchResults, setCurrentCycleId } = useMatchStore();
+  const {
+    matchResultsByCycle,
+    setMatchResults,
+    setCurrentCycleId,
+    setAvoidanceResult,
+    getAvoidanceResult,
+    addChangeLog,
+  } = useMatchStore();
   const { students, wills } = useStudentStore();
-  const { seatSchedules, examRooms } = useSeatStore();
+  const { seatSchedules, examRooms, updateSeatSchedule } = useSeatStore();
   const { cycles } = useCycleStore();
   const [selectedCycle, setSelectedCycle] = useState(cycles[0]?.id || '');
   const [sortBy, setSortBy] = useState('rank');
@@ -44,7 +51,17 @@ export default function RankingPage() {
 
   useEffect(() => {
     setCurrentCycleId(selectedCycle);
-  }, [selectedCycle, setCurrentCycleId]);
+    const saved = getAvoidanceResult(selectedCycle);
+    if (saved) {
+      setAdjustments(saved.adjustments as AvoidanceAdjustment[]);
+      setFailures(saved.failures as AvoidanceFailure[]);
+      setAvoidanceApplied(true);
+    } else {
+      setAdjustments([]);
+      setFailures([]);
+      setAvoidanceApplied(false);
+    }
+  }, [selectedCycle, setCurrentCycleId, getAvoidanceResult]);
 
   const matchResults = useMemo(() => {
     return matchResultsByCycle[selectedCycle] || [];
@@ -89,6 +106,7 @@ export default function RankingPage() {
   }, [matchResults, sortBy, filterCategory, adjustedStudentIds, failedStudentIds, students]);
 
   const handleApplyAvoidance = () => {
+    const oldResults = [...matchResults];
     const result = applySameSchoolAvoidance(
       matchResults,
       students,
@@ -102,6 +120,44 @@ export default function RankingPage() {
     setFailures(result.failures);
     setAvoidanceApplied(true);
     setShowAdjustmentPanel(true);
+
+    setAvoidanceResult(selectedCycle, {
+      adjustments: result.adjustments,
+      failures: result.failures,
+    });
+
+    result.adjustments.forEach(adj => {
+      const oldResult = oldResults.find(r => r.studentId === adj.studentId);
+      const newResult = result.results.find(r => r.studentId === adj.studentId);
+      
+      if (oldResult && newResult && oldResult.status === 'confirmed') {
+        updateSeatSchedule(oldResult.seatScheduleId, { status: 'available' });
+        updateSeatSchedule(newResult.seatScheduleId, { status: 'booked' });
+      }
+
+      const oldSchedule = cycleSchedules.find(s => s.id === oldResult?.seatScheduleId);
+      const newSchedule = cycleSchedules.find(s => s.id === newResult?.seatScheduleId);
+      const oldRoom = examRooms.find(r => r.id === oldSchedule?.examRoomId);
+      const newRoom = examRooms.find(r => r.id === newSchedule?.examRoomId);
+
+      addChangeLog({
+        cycleId: selectedCycle,
+        type: 'same_school_avoid',
+        studentId: adj.studentId,
+        studentName: adj.studentName,
+        fromRoomName: oldRoom?.name,
+        toRoomName: newRoom?.name,
+        fromDate: oldSchedule?.date,
+        toDate: newSchedule?.date,
+        fromTimeSlot: oldSchedule?.timeSlot,
+        toTimeSlot: newSchedule?.timeSlot,
+        fromSeatNumber: oldSchedule?.seatId,
+        toSeatNumber: newSchedule?.seatId,
+        fromSeatScheduleId: oldResult?.seatScheduleId,
+        toSeatScheduleId: newResult?.seatScheduleId,
+        reason: adj.reason,
+      });
+    });
   };
 
   const avgScore = matchResults.length > 0
