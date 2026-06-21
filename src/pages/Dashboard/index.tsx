@@ -12,14 +12,17 @@ export default function Dashboard() {
   const { examRooms, seats, seatSchedules } = useSeatStore();
   const { students, wills } = useStudentStore();
   const { cycles } = useCycleStore();
-  const { matchResults } = useMatchStore();
+  const { getAllConfirmedResults, matchResultsByCycle } = useMatchStore();
+
+  const allConfirmedResults = getAllConfirmedResults();
+  const allMatchResults = Object.values(matchResultsByCycle).flat();
 
   const availableSchedules = seatSchedules.filter(s => s.status === 'available').length;
   const bookedSchedules = seatSchedules.filter(s => s.status === 'booked').length;
-  const matchedCount = matchResults.filter(r => r.status === 'confirmed').length;
-  const pendingCount = matchResults.filter(r => r.status === 'pending').length;
-  const matchRate = matchResults.length > 0 
-    ? Math.round((matchedCount / matchResults.length) * 100) 
+  const matchedCount = allConfirmedResults.length;
+  const pendingCount = allMatchResults.filter(r => r.status === 'pending').length;
+  const matchRate = allMatchResults.length > 0 
+    ? Math.round((matchedCount / allMatchResults.length) * 100) 
     : 0;
 
   const recentCycles = cycles.slice(0, 3);

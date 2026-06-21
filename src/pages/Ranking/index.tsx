@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Trophy,
   TrendingUp,
@@ -15,6 +15,8 @@ import {
   MapPin,
   Clock,
   Info,
+  Filter,
+  Eye,
 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -28,29 +30,63 @@ import { applySameSchoolAvoidance } from '@/utils';
 import type { AvoidanceAdjustment, AvoidanceFailure } from '@/utils';
 
 export default function RankingPage() {
-  const { matchResults, setMatchResults } = useMatchStore();
+  const { matchResultsByCycle, setMatchResults, setCurrentCycleId } = useMatchStore();
   const { students, wills } = useStudentStore();
   const { seatSchedules, examRooms } = useSeatStore();
   const { cycles } = useCycleStore();
   const [selectedCycle, setSelectedCycle] = useState(cycles[0]?.id || '');
   const [sortBy, setSortBy] = useState('rank');
+  const [filterCategory, setFilterCategory] = useState<'all' | 'adjusted' | 'failed' | 'untreated'>('all');
   const [adjustments, setAdjustments] = useState<AvoidanceAdjustment[]>([]);
   const [failures, setFailures] = useState<AvoidanceFailure[]>([]);
   const [avoidanceApplied, setAvoidanceApplied] = useState(false);
-  const [showAdjustmentPanel, setShowAdjustmentPanel] = useState(false);
+  const [showAdjustmentPanel, setShowAdjustmentPanel] = useState(true);
 
-  const cycleSchedules = seatSchedules.filter(s => s.cycleId === selectedCycle);
+  useEffect(() => {
+    setCurrentCycleId(selectedCycle);
+  }, [selectedCycle, setCurrentCycleId]);
 
-  const sortedResults = [...matchResults].sort((a, b) => {
-    if (sortBy === 'rank') return a.rank - b.rank;
-    if (sortBy === 'score') return b.fitScore - a.fitScore;
-    if (sortBy === 'school') {
-      const sa = students.find(s => s.id === a.studentId)?.school || '';
-      const sb = students.find(s => s.id === b.studentId)?.school || '';
-      return sa.localeCompare(sb);
+  const matchResults = useMemo(() => {
+    return matchResultsByCycle[selectedCycle] || [];
+  }, [matchResultsByCycle, selectedCycle]);
+
+  const cycleSchedules = useMemo(
+    () => seatSchedules.filter(s => s.cycleId === selectedCycle),
+    [seatSchedules, selectedCycle]
+  );
+
+  const adjustedStudentIds = useMemo(() => {
+    return new Set(adjustments.map(a => a.studentId));
+  }, [adjustments]);
+
+  const failedStudentIds = useMemo(() => {
+    return new Set(failures.map(f => f.studentId));
+  }, [failures]);
+
+  const sortedResults = useMemo(() => {
+    let results = [...matchResults];
+    
+    if (filterCategory === 'adjusted') {
+      results = results.filter(r => adjustedStudentIds.has(r.studentId));
+    } else if (filterCategory === 'failed') {
+      results = results.filter(r => failedStudentIds.has(r.studentId));
+    } else if (filterCategory === 'untreated') {
+      results = results.filter(r => !r.sameSchoolAvoid);
     }
-    return 0;
-  });
+    
+    results.sort((a, b) => {
+      if (sortBy === 'rank') return a.rank - b.rank;
+      if (sortBy === 'score') return b.fitScore - a.fitScore;
+      if (sortBy === 'school') {
+        const sa = students.find(s => s.id === a.studentId)?.school || '';
+        const sb = students.find(s => s.id === b.studentId)?.school || '';
+        return sa.localeCompare(sb);
+      }
+      return 0;
+    });
+    
+    return results;
+  }, [matchResults, sortBy, filterCategory, adjustedStudentIds, failedStudentIds, students]);
 
   const handleApplyAvoidance = () => {
     const result = applySameSchoolAvoidance(
@@ -74,7 +110,9 @@ export default function RankingPage() {
 
   const highScoreCount = matchResults.filter(r => r.fitScore >= 80).length;
   const sameSchoolCount = matchResults.filter(r => r.sameSchoolAvoid).length;
-  const confirmedCount = matchResults.filter(r => r.status === 'confirmed').length;
+  const adjustedCount = adjustments.length;
+  const failedCount = failures.length;
+  const untreatedCount = matchResults.filter(r => !r.sameSchoolAvoid).length;
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-600';
@@ -97,19 +135,30 @@ export default function RankingPage() {
     return { variant: 'default', icon: null };
   };
 
+  const getStudentAvoidanceStatus = (studentId: string) => {
+    if (adjustedStudentIds.has(studentId)) return 'adjusted';
+    if (failedStudentIds.has(studentId)) return 'failed';
+    return 'untreated';
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">契合排序</h1>
-          <p className="text-slate-500 mt-1">按契合度对匹配结果进行排序</p>
+          <p className="text-slate-500 mt-1">按契合度对匹配结果进行排序与同校避开复核</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="w-48">
             <Select
               label="选择周期"
               value={selectedCycle}
-              onChange={(e) => setSelectedCycle(e.target.value)}
+              onChange={(e) => {
+                setSelectedCycle(e.target.value);
+                setAdjustments([]);
+                setFailures([]);
+                setAvoidanceApplied(false);
+              }}
             >
               {cycles.map(cycle => (
                 <option key={cycle.id} value={cycle.id}>{cycle.name}</option>
@@ -122,7 +171,7 @@ export default function RankingPage() {
             onClick={handleApplyAvoidance}
             className="mt-6"
           >
-            {avoidanceApplied ? '已应用同校避开' : '同校避开'}
+            {avoidanceApplied ? '重新执行同校避开' : '同校避开'}
           </Button>
           <Button
             icon={<Download className="w-4 h-4" />}
@@ -133,7 +182,7 @@ export default function RankingPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <Card.Body>
             <div className="flex items-center gap-3">
@@ -164,11 +213,11 @@ export default function RankingPage() {
           <Card.Body>
             <div className="flex items-center gap-3">
               <div className="p-3 bg-blue-50 rounded-xl">
-                <Users className="w-6 h-6 text-blue-600" />
+                <CheckCircle className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-slate-800">{highScoreCount}</p>
-                <p className="text-sm text-slate-500">80分以上</p>
+                <p className="text-2xl font-bold text-green-600">{adjustedCount}</p>
+                <p className="text-sm text-slate-500">成功调整</p>
               </div>
             </div>
           </Card.Body>
@@ -176,12 +225,25 @@ export default function RankingPage() {
         <Card>
           <Card.Body>
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-purple-50 rounded-xl">
-                <Shield className="w-6 h-6 text-purple-600" />
+              <div className="p-3 bg-amber-50 rounded-xl">
+                <AlertTriangle className="w-6 h-6 text-amber-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-slate-800">{sameSchoolCount}</p>
-                <p className="text-sm text-slate-500">同校避开处理</p>
+                <p className="text-2xl font-bold text-amber-600">{failedCount}</p>
+                <p className="text-sm text-slate-500">无法避开</p>
+              </div>
+            </div>
+          </Card.Body>
+        </Card>
+        <Card>
+          <Card.Body>
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <Users className="w-6 h-6 text-slate-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-600">{untreatedCount}</p>
+                <p className="text-sm text-slate-500">未处理</p>
               </div>
             </div>
           </Card.Body>
@@ -272,17 +334,33 @@ export default function RankingPage() {
         <Card.Header>
           <div className="flex items-center justify-between">
             <Card.Title>排序列表</Card.Title>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-500">排序方式：</span>
-              <Select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="w-36"
-              >
-                <option value="rank">按排名</option>
-                <option value="score">按契合度</option>
-                <option value="school">按学校</option>
-              </Select>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-slate-400" />
+                <span className="text-sm text-slate-500">类别：</span>
+                <Select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value as any)}
+                  className="w-28"
+                >
+                  <option value="all">全部</option>
+                  <option value="adjusted">成功调整</option>
+                  <option value="failed">无法避开</option>
+                  <option value="untreated">未处理</option>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500">排序：</span>
+                <Select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-28"
+                >
+                  <option value="rank">按排名</option>
+                  <option value="score">按契合度</option>
+                  <option value="school">按学校</option>
+                </Select>
+              </div>
             </div>
           </div>
         </Card.Header>
@@ -302,18 +380,21 @@ export default function RankingPage() {
                 if (!student || !schedule) return null;
 
                 const rankBadge = getRankBadge(result.rank);
+                const status = getStudentAvoidanceStatus(student.id);
 
                 return (
                   <div
                     key={result.id}
                     className={`flex items-center gap-4 p-4 rounded-xl transition-all hover:shadow-md ${
-                      result.sameSchoolAvoid
-                        ? 'bg-amber-50 border border-amber-200'
+                      status === 'adjusted'
+                        ? 'bg-green-50 border-2 border-green-300'
+                        : status === 'failed'
+                        ? 'bg-amber-50 border-2 border-amber-300'
                         : result.status === 'confirmed'
-                        ? 'bg-green-50 border border-green-200'
+                        ? 'bg-blue-50 border border-blue-200'
                         : result.status === 'rejected'
                         ? 'bg-red-50 border border-red-100 opacity-60'
-                        : 'bg-slate-50 hover:bg-slate-100'
+                        : 'bg-slate-50 hover:bg-slate-100 border border-transparent'
                     }`}
                   >
                     <div className="w-12 h-12 flex items-center justify-center">
@@ -331,13 +412,19 @@ export default function RankingPage() {
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-slate-800">{student.name}</span>
                         <Badge variant="primary" size="sm">P{student.priority}</Badge>
-                        {result.sameSchoolAvoid && (
+                        {status === 'adjusted' && (
+                          <Badge variant="success" size="sm">
+                            <CheckCircle className="w-3 h-3 mr-1 inline" />
+                            成功调整
+                          </Badge>
+                        )}
+                        {status === 'failed' && (
                           <Badge variant="warning" size="sm">
-                            <Shield className="w-3 h-3 mr-1 inline" />
-                            同校调整
+                            <AlertTriangle className="w-3 h-3 mr-1 inline" />
+                            无法避开
                           </Badge>
                         )}
                         {result.status === 'confirmed' && (

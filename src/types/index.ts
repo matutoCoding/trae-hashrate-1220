@@ -100,7 +100,7 @@ export interface MatchResult {
   studentId: string;
   seatScheduleId: string;
   fitScore: number;
-  status: 'pending' | 'confirmed' | 'rejected';
+  status: 'pending' | 'confirmed' | 'rejected' | 'cancelled';
   sameSchoolAvoid: boolean;
   rank: number;
   matchedAt: string;
