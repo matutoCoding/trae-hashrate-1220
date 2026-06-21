@@ -1,5 +1,5 @@
 import { format, addDays, startOfWeek, getDay, parseISO } from 'date-fns';
-import type { CycleRule, SeatSchedule, Seat, StudentWill, Student, MatchConditions, MatchDetail, MatchResult, MatchStatus } from '@/types';
+import type { CycleRule, SeatSchedule, Seat, StudentWill, Student, MatchConditions, MatchDetail, MatchResult, MatchStatus, ExamRoom } from '@/types';
 
 export const formatDate = (date: string | Date, fmt: string = 'yyyy-MM-dd'): string => {
   const d = typeof date === 'string' ? parseISO(date) : date;
@@ -88,13 +88,20 @@ export const checkStudentFitsSeat = (student: Student, conditions: MatchConditio
 
 export const checkSeatFitsStudent = (
   schedule: SeatSchedule,
-  will: StudentWill
+  will: StudentWill,
+  examRooms: ExamRoom[]
 ): boolean => {
   if (will.preferredTimeSlot && schedule.timeSlot !== will.preferredTimeSlot) {
     return false;
   }
   if (will.preferences.preferredDate && schedule.date !== will.preferences.preferredDate) {
     return false;
+  }
+  if (will.preferences.preferredCampus) {
+    const room = examRooms.find(r => r.id === schedule.examRoomId);
+    if (room && room.campus !== will.preferences.preferredCampus) {
+      return false;
+    }
   }
   return true;
 };
@@ -149,7 +156,8 @@ export const calculateFitScore = (
 export const performBidirectionalMatching = (
   students: Student[],
   wills: StudentWill[],
-  schedules: SeatSchedule[]
+  schedules: SeatSchedule[],
+  examRooms: ExamRoom[]
 ): MatchDetail[] => {
   const results: MatchDetail[] = [];
   
@@ -161,7 +169,7 @@ export const performBidirectionalMatching = (
       if (schedule.status !== 'available') return;
       
       const studentFitsSeat = checkStudentFitsSeat(student, schedule.matchConditions);
-      const seatFitsStudent = checkSeatFitsStudent(schedule, will);
+      const seatFitsStudent = checkSeatFitsStudent(schedule, will, examRooms);
       
       let status: MatchStatus = 'none';
       if (studentFitsSeat && seatFitsStudent) {
@@ -222,18 +230,49 @@ export const generateMatchResults = (matchDetails: MatchDetail[]): MatchResult[]
   return results;
 };
 
+export interface AvoidanceResult {
+  results: MatchResult[];
+  adjustments: AvoidanceAdjustment[];
+  failures: AvoidanceFailure[];
+}
+
+export interface AvoidanceAdjustment {
+  studentId: string;
+  studentName: string;
+  school: string;
+  fromRoom: string;
+  toRoom: string;
+  fromTimeSlot: string;
+  toTimeSlot: string;
+  reason: string;
+}
+
+export interface AvoidanceFailure {
+  studentId: string;
+  studentName: string;
+  school: string;
+  roomId: string;
+  reason: string;
+}
+
 export const applySameSchoolAvoidance = (
   results: MatchResult[],
   students: Student[],
   schedules: SeatSchedule[],
-  allSchedules: SeatSchedule[]
-): MatchResult[] => {
+  allSchedules: SeatSchedule[],
+  examRooms: ExamRoom[]
+): AvoidanceResult => {
   const studentMap = new Map(students.map(s => [s.id, s]));
   const scheduleMap = new Map(schedules.map(s => [s.id, s]));
+  const allScheduleMap = new Map(allSchedules.map(s => [s.id, s]));
+  
+  const processedResults = [...results];
+  const adjustments: AvoidanceAdjustment[] = [];
+  const failures: AvoidanceFailure[] = [];
   
   const schoolRoomMap = new Map<string, Map<string, MatchResult[]>>();
   
-  results.forEach(result => {
+  processedResults.forEach(result => {
     const student = studentMap.get(result.studentId);
     const schedule = scheduleMap.get(result.seatScheduleId);
     if (!student || !schedule) return;
@@ -248,21 +287,126 @@ export const applySameSchoolAvoidance = (
     roomMap.get(schedule.examRoomId)!.push(result);
   });
   
-  const processedResults = [...results];
+  const usedSeats = new Set(processedResults.map(r => r.seatScheduleId));
+  const adjustedStudents = new Set<string>();
   
-  schoolRoomMap.forEach((roomMap) => {
+  schoolRoomMap.forEach((roomMap, school) => {
     roomMap.forEach((roomResults) => {
-      if (roomResults.length > 1) {
-        const sorted = [...roomResults].sort((a, b) => b.fitScore - a.fitScore);
-        for (let i = 1; i < sorted.length; i++) {
-          const result = processedResults.find(r => r.id === sorted[i].id);
-          if (result) {
-            result.sameSchoolAvoid = true;
+      if (roomResults.length <= 1) return;
+      
+      const sorted = [...roomResults].sort((a, b) => b.fitScore - a.fitScore);
+      
+      for (let i = 1; i < sorted.length; i++) {
+        const result = sorted[i];
+        const student = studentMap.get(result.studentId);
+        const currentSchedule = scheduleMap.get(result.seatScheduleId);
+        
+        if (!student || !currentSchedule) continue;
+        if (adjustedStudents.has(student.id)) continue;
+        
+        const newSchedule = findAlternativeSeat(
+          result,
+          currentSchedule,
+          allSchedules,
+          usedSeats,
+          examRooms,
+          schoolRoomMap.get(school) || new Map()
+        );
+        
+        if (newSchedule) {
+          usedSeats.delete(result.seatScheduleId);
+          usedSeats.add(newSchedule.id);
+          
+          const resultIndex = processedResults.findIndex(r => r.id === result.id);
+          if (resultIndex !== -1) {
+            processedResults[resultIndex] = {
+              ...result,
+              seatScheduleId: newSchedule.id,
+              sameSchoolAvoid: true,
+            };
           }
+          
+          const fromRoom = examRooms.find(r => r.id === currentSchedule.examRoomId)?.name || currentSchedule.examRoomId;
+          const toRoom = examRooms.find(r => r.id === newSchedule.examRoomId)?.name || newSchedule.examRoomId;
+          
+          adjustments.push({
+            studentId: student.id,
+            studentName: student.name,
+            school: student.school,
+            fromRoom,
+            toRoom,
+            fromTimeSlot: currentSchedule.timeSlot,
+            toTimeSlot: newSchedule.timeSlot,
+            reason: '同校避开，调整至其他考场',
+          });
+          
+          adjustedStudents.add(student.id);
+        } else {
+          const resultIndex = processedResults.findIndex(r => r.id === result.id);
+          if (resultIndex !== -1) {
+            processedResults[resultIndex] = {
+              ...result,
+              sameSchoolAvoid: true,
+            };
+          }
+          
+          const roomName = examRooms.find(r => r.id === currentSchedule.examRoomId)?.name || currentSchedule.examRoomId;
+          failures.push({
+            studentId: student.id,
+            studentName: student.name,
+            school: student.school,
+            roomId: currentSchedule.examRoomId,
+            reason: `找不到可替换的考位，无法避开同校考生（${roomName} 同校有 ${sorted.length} 人）`,
+          });
         }
       }
     });
   });
   
-  return processedResults;
+  return { results: processedResults, adjustments, failures };
+};
+
+const findAlternativeSeat = (
+  result: MatchResult,
+  currentSchedule: SeatSchedule,
+  allSchedules: SeatSchedule[],
+  usedSeats: Set<string>,
+  examRooms: ExamRoom[],
+  currentSchoolRoomMap: Map<string, MatchResult[]>
+): SeatSchedule | null => {
+  const sameTimeOtherRoom = allSchedules.filter(s =>
+    s.date === currentSchedule.date &&
+    s.timeSlot === currentSchedule.timeSlot &&
+    s.examRoomId !== currentSchedule.examRoomId &&
+    s.status === 'available' &&
+    !usedSeats.has(s.id) &&
+    !currentSchoolRoomMap.has(s.examRoomId)
+  );
+  
+  if (sameTimeOtherRoom.length > 0) {
+    return sameTimeOtherRoom[Math.floor(Math.random() * sameTimeOtherRoom.length)];
+  }
+  
+  const sameDateOtherTime = allSchedules.filter(s =>
+    s.date === currentSchedule.date &&
+    s.timeSlot !== currentSchedule.timeSlot &&
+    s.status === 'available' &&
+    !usedSeats.has(s.id)
+  );
+  
+  if (sameDateOtherTime.length > 0) {
+    return sameDateOtherTime[Math.floor(Math.random() * sameDateOtherTime.length)];
+  }
+  
+  const otherDate = allSchedules.filter(s =>
+    s.date !== currentSchedule.date &&
+    s.status === 'available' &&
+    !usedSeats.has(s.id)
+  );
+  
+  if (otherDate.length > 0) {
+    return otherDate[Math.floor(Math.random() * otherDate.length)];
+  }
+  
+  return null;
 };

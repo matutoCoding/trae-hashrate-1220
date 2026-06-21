@@ -1,5 +1,21 @@
-import { useState, useEffect } from 'react';
-import { Trophy, TrendingUp, Users, School, ArrowUpDown, Shield, Download, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Trophy,
+  TrendingUp,
+  Users,
+  School,
+  ArrowUpDown,
+  Shield,
+  Download,
+  RefreshCw,
+  CheckCircle,
+  AlertTriangle,
+  XCircle,
+  ArrowRight,
+  MapPin,
+  Clock,
+  Info,
+} from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
@@ -9,15 +25,19 @@ import { useStudentStore } from '@/store/studentStore';
 import { useSeatStore } from '@/store/seatStore';
 import { useCycleStore } from '@/store/cycleStore';
 import { applySameSchoolAvoidance } from '@/utils';
+import type { AvoidanceAdjustment, AvoidanceFailure } from '@/utils';
 
 export default function RankingPage() {
   const { matchResults, setMatchResults } = useMatchStore();
   const { students } = useStudentStore();
-  const { seatSchedules } = useSeatStore();
+  const { seatSchedules, examRooms } = useSeatStore();
   const { cycles } = useCycleStore();
   const [selectedCycle, setSelectedCycle] = useState(cycles[0]?.id || '');
   const [sortBy, setSortBy] = useState('rank');
-  const [showAvoidanceApplied, setShowAvoidanceApplied] = useState(false);
+  const [adjustments, setAdjustments] = useState<AvoidanceAdjustment[]>([]);
+  const [failures, setFailures] = useState<AvoidanceFailure[]>([]);
+  const [avoidanceApplied, setAvoidanceApplied] = useState(false);
+  const [showAdjustmentPanel, setShowAdjustmentPanel] = useState(false);
 
   const cycleSchedules = seatSchedules.filter(s => s.cycleId === selectedCycle);
 
@@ -33,9 +53,18 @@ export default function RankingPage() {
   });
 
   const handleApplyAvoidance = () => {
-    const results = applySameSchoolAvoidance(matchResults, students, cycleSchedules, cycleSchedules);
-    setMatchResults(results);
-    setShowAvoidanceApplied(true);
+    const result = applySameSchoolAvoidance(
+      matchResults,
+      students,
+      cycleSchedules,
+      cycleSchedules,
+      examRooms
+    );
+    setMatchResults(result.results);
+    setAdjustments(result.adjustments);
+    setFailures(result.failures);
+    setAvoidanceApplied(true);
+    setShowAdjustmentPanel(true);
   };
 
   const avgScore = matchResults.length > 0
@@ -44,6 +73,7 @@ export default function RankingPage() {
 
   const highScoreCount = matchResults.filter(r => r.fitScore >= 80).length;
   const sameSchoolCount = matchResults.filter(r => r.sameSchoolAvoid).length;
+  const confirmedCount = matchResults.filter(r => r.status === 'confirmed').length;
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-600';
@@ -86,12 +116,12 @@ export default function RankingPage() {
             </Select>
           </div>
           <Button
-            variant="outline"
+            variant={avoidanceApplied ? 'primary' : 'outline'}
             icon={<Shield className="w-4 h-4" />}
             onClick={handleApplyAvoidance}
             className="mt-6"
           >
-            同校避开
+            {avoidanceApplied ? '已应用同校避开' : '同校避开'}
           </Button>
           <Button
             icon={<Download className="w-4 h-4" />}
@@ -146,27 +176,94 @@ export default function RankingPage() {
           <Card.Body>
             <div className="flex items-center gap-3">
               <div className="p-3 bg-purple-50 rounded-xl">
-                <School className="w-6 h-6 text-purple-600" />
+                <Shield className="w-6 h-6 text-purple-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-slate-800">{sameSchoolCount}</p>
-                <p className="text-sm text-slate-500">同校避开</p>
+                <p className="text-sm text-slate-500">同校避开处理</p>
               </div>
             </div>
           </Card.Body>
         </Card>
       </div>
 
-      {showAvoidanceApplied && sameSchoolCount > 0 && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3">
-          <Shield className="w-5 h-5 text-amber-600" />
-          <div>
-            <p className="font-medium text-amber-800">同校避开已应用</p>
-            <p className="text-sm text-amber-600">检测到 {sameSchoolCount} 名同校考生在同一考场，已标记需要调整</p>
-          </div>
-          <Button variant="outline" size="sm" className="ml-auto">
-            查看详情
-          </Button>
+      {avoidanceApplied && showAdjustmentPanel && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {adjustments.length > 0 && (
+            <Card>
+              <Card.Header>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                  <Card.Title>成功调整 ({adjustments.length} 人)</Card.Title>
+                </div>
+              </Card.Header>
+              <Card.Body>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {adjustments.map((adj, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-100"
+                    >
+                      <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                        <ArrowRight className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-green-800">{adj.studentName}</span>
+                          <Badge variant="success" size="sm">{adj.school}</Badge>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-green-600 mt-1">
+                          <MapPin className="w-3 h-3" />
+                          <span>{adj.fromRoom}</span>
+                          <ArrowRight className="w-3 h-3" />
+                          <span>{adj.toRoom}</span>
+                          {adj.fromTimeSlot !== adj.toTimeSlot && (
+                            <>
+                              <Clock className="w-3 h-3 ml-2" />
+                              <span>{adj.toTimeSlot}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant="success" size="sm">已调整</Badge>
+                    </div>
+                  ))}
+                </div>
+              </Card.Body>
+            </Card>
+          )}
+
+          {failures.length > 0 && (
+            <Card>
+              <Card.Header>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  <Card.Title>无法避开 ({failures.length} 人)</Card.Title>
+                </div>
+              </Card.Header>
+              <Card.Body>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {failures.map((fail, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100"
+                    >
+                      <div className="p-1.5 bg-amber-100 rounded mt-0.5">
+                        <Info className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-amber-800">{fail.studentName}</span>
+                          <Badge variant="warning" size="sm">{fail.school}</Badge>
+                        </div>
+                        <p className="text-xs text-amber-600 mt-1">{fail.reason}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card.Body>
+            </Card>
+          )}
         </div>
       )}
 
@@ -200,6 +297,7 @@ export default function RankingPage() {
               sortedResults.map((result, index) => {
                 const student = students.find(s => s.id === result.studentId);
                 const schedule = cycleSchedules.find(s => s.id === result.seatScheduleId);
+                const room = examRooms.find(r => r.id === schedule?.examRoomId);
                 if (!student || !schedule) return null;
 
                 const rankBadge = getRankBadge(result.rank);
@@ -210,6 +308,10 @@ export default function RankingPage() {
                     className={`flex items-center gap-4 p-4 rounded-xl transition-all hover:shadow-md ${
                       result.sameSchoolAvoid
                         ? 'bg-amber-50 border border-amber-200'
+                        : result.status === 'confirmed'
+                        ? 'bg-green-50 border border-green-200'
+                        : result.status === 'rejected'
+                        ? 'bg-red-50 border border-red-100 opacity-60'
                         : 'bg-slate-50 hover:bg-slate-100'
                     }`}
                   >
@@ -234,15 +336,21 @@ export default function RankingPage() {
                         {result.sameSchoolAvoid && (
                           <Badge variant="warning" size="sm">
                             <Shield className="w-3 h-3 mr-1 inline" />
-                            同校避开
+                            同校调整
                           </Badge>
+                        )}
+                        {result.status === 'confirmed' && (
+                          <Badge variant="success" size="sm">已确认</Badge>
+                        )}
+                        {result.status === 'rejected' && (
+                          <Badge variant="danger" size="sm">已拒绝</Badge>
                         )}
                       </div>
                       <p className="text-sm text-slate-500 mt-0.5">
                         {student.school} · {student.major} · {student.education}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {schedule.date} {schedule.timeSlot}
+                        {room?.name} · {schedule.date} {schedule.timeSlot}
                       </p>
                     </div>
 
@@ -260,13 +368,6 @@ export default function RankingPage() {
                         />
                       </div>
                     </div>
-
-                    <Badge
-                      variant={result.status === 'confirmed' ? 'success' : result.status === 'rejected' ? 'danger' : 'warning'}
-                      size="sm"
-                    >
-                      {result.status === 'confirmed' ? '已确认' : result.status === 'rejected' ? '已拒绝' : '待确认'}
-                    </Badge>
                   </div>
                 );
               })
@@ -285,7 +386,7 @@ export default function RankingPage() {
               const schoolStudents = students.filter(s => s.school === school);
               const matchedCount = matchResults.filter(r => {
                 const s = students.find(st => st.id === r.studentId);
-                return s?.school === school;
+                return s?.school === school && r.status !== 'rejected';
               }).length;
               return (
                 <div key={school} className="p-4 bg-slate-50 rounded-xl text-center">

@@ -5,6 +5,7 @@ import SeatsPage from "@/pages/Seats";
 import CycleRulesPage from "@/pages/Cycle/Rules";
 import CycleGeneratePage from "@/pages/Cycle/Generate";
 import CycleListPage from "@/pages/Cycle/List";
+import CycleDetailPage from "@/pages/Cycle/Detail";
 import StudentsPage from "@/pages/Students";
 import MatchingPage from "@/pages/Matching";
 import RankingPage from "@/pages/Ranking";
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/cycle/rules" element={<CycleRulesPage />} />
           <Route path="/cycle/generate" element={<CycleGeneratePage />} />
           <Route path="/cycle/list" element={<CycleListPage />} />
+          <Route path="/cycle/:id" element={<CycleDetailPage />} />
           <Route path="/students" element={<StudentsPage />} />
           <Route path="/matching" element={<MatchingPage />} />
           <Route path="/ranking" element={<RankingPage />} />

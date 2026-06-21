@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Calendar, ChevronRight, Clock, Armchair, Eye, Download } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -9,6 +10,7 @@ import { useCycleStore } from '@/store/cycleStore';
 import { formatDate } from '@/utils';
 
 export default function CycleListPage() {
+  const navigate = useNavigate();
   const { cycles } = useCycleStore();
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -68,7 +70,7 @@ export default function CycleListPage() {
 
       <div className="space-y-3">
         {filteredCycles.map((cycle) => (
-          <Card key={cycle.id} hover>
+          <Card key={cycle.id} hover onClick={() => navigate(`/cycle/${cycle.id}`)} className="cursor-pointer">
             <Card.Body>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -95,7 +97,7 @@ export default function CycleListPage() {
                     {statusLabels[cycle.status]}
                   </Badge>
                   <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" icon={<Eye className="w-4 h-4" />}>
+                    <Button variant="ghost" size="sm" icon={<Eye className="w-4 h-4" />} onClick={(e) => { e.stopPropagation(); navigate(`/cycle/${cycle.id}`); }}>
                       查看
                     </Button>
                     {cycle.status === 'upcoming' && (
